@@ -3,11 +3,12 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>iPhone 水平角度讀取 Demo</title>
+  <title>iPhone 前傾角校正 Demo</title>
   <style>
     body { font-family: system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial;
            margin: 2rem; line-height: 1.6; }
     button { font-size: 1rem; padding: .6rem 1rem; }
+    .row { display:flex; gap:.75rem; flex-wrap:wrap; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }
     .card { border: 1px solid #ccc; border-radius: 12px; padding: 1rem; }
     .big { font-size: 1.75rem; font-weight: 700; }
@@ -22,17 +23,35 @@
       left: 50%; top: 50%; transform: translate(-50%, -50%);
     }
     .hint { color:#555; font-size:.9rem; }
+    .ok   { color:#0a0; font-weight:600; }
   </style>
 </head>
 <body>
-  <h1>讀取 Apple 裝置的水平角度</h1>
-  <p class="hint">請在 <b>HTTPS</b> 網站上開啟；首次需點按授權按鈕（iOS 規定）。把手機放在平面上測試更準。</p>
+  <h1>讀取 Apple 裝置的水平角度（含前傾角校正）</h1>
+  <p class="hint">請在 <b>HTTPS</b> 網站上開啟；首次需點按授權按鈕（iOS 規定）。</p>
 
-  <button id="btn">請求感測權限並開始</button>
+  <div class="row">
+    <button id="btn">請求感測權限並開始</button>
+    <button id="calBtn" disabled>前傾角校正</button>
+    <button id="resetCal" disabled>清除校正</button>
+  </div>
+
+  <div id="calCard" class="card" style="display:none; margin-top:1rem;">
+    <strong>兩步驟前傾角校正</strong>
+    <ol>
+      <li>位置 #1：放置手機，按 <button id="sample1">取樣 #1</button> → <span id="s1">--</span></li>
+      <li>翻轉位置 #2：手機翻轉後，按 <button id="sample2" disabled>取樣 #2</button> → <span id="s2">--</span></li>
+    </ol>
+    <div>計算出的校正修正值 (r1 − r2)/2 = <span id="bCorr" class="big">--</span>°</div>
+    <div class="row" style="margin-top:.5rem;">
+      <button id="applyCal" disabled>套用校正</button>
+      <button id="cancelCal">取消</button>
+    </div>
+  </div>
 
   <div class="grid">
     <div class="card">
-      <div>前後傾 (β, beta)</div>
+      <div>前後傾 (β, beta) <span id="betaNote" class="hint"></span></div>
       <div id="beta" class="big">--°</div>
       <div>左右傾 (γ, gamma)</div>
       <div id="gamma" class="big">--°</div>
@@ -42,7 +61,6 @@
     <div class="card">
       <div>方位角（Heading / Azimuth）</div>
       <div id="heading" class="big">--°</div>
-      <div class="hint">* 依瀏覽器支援度而定；Safari 可能提供 webkitCompassHeading（0°=正北）。</div>
     </div>
   </div>
 
@@ -51,7 +69,6 @@
     <div id="level">
       <div id="bubble"></div>
     </div>
-    <div class="hint">圓心表示水平。泡泡偏移代表傾斜方向與大小。</div>
   </div>
 
   <script>
@@ -59,83 +76,118 @@
     const fmt = v => (Math.round(v * 10) / 10).toFixed(1);
 
     let rafId = null;
-    const state = { beta: 0, gamma: 0, heading: null };
+    const state = {
+      betaRaw: 0, gammaRaw: 0, heading: null,
+      betaCorr: 0, hasCorr: false,
+      cal: { r1: null, r2: null, corr: null }
+    };
+
+    function currentBeta() { return state.betaRaw - (state.hasCorr ? state.betaCorr : 0); }
+    function currentGamma(){ return state.gammaRaw; }
 
     function updateUI() {
-      $("beta").textContent = fmt(state.beta) + "°";
-      $("gamma").textContent = fmt(state.gamma) + "°";
-      const tilt = Math.hypot(state.beta, state.gamma);
-      $("tilt").textContent = fmt(tilt) + "°";
+      const beta = currentBeta();
+      const gamma = currentGamma();
 
+      $("beta").textContent  = fmt(beta) + "°";
+      $("gamma").textContent = fmt(gamma) + "°";
+      $("betaNote").textContent  = state.hasCorr ? "(已校正)" : "";
+
+      const tilt = Math.hypot(beta, gamma);
+      $("tilt").textContent = fmt(tilt) + "°";
       $("heading").textContent = state.heading == null ? "--°" : fmt(state.heading) + "°";
 
-      // 泡泡移動：根據 gamma (左右) 與 beta (前後)
       const level = $("level");
       const bubble = $("bubble");
       const R = level.clientWidth / 2;
-      const maxOffset = R - bubble.clientWidth / 2 - 6; // 內縮，避免超框
-      // 將角度映射成位移（簡化比率，每度 ≈ 2 像素，可自行調整）
+      const maxOffset = R - bubble.clientWidth / 2 - 6;
       const k = 2;
-      let x = state.gamma * k;
-      let y = state.beta  * k;
-      // 限制在圓內
+      let x = gamma * k;
+      let y = beta  * k;
       const mag = Math.hypot(x, y);
-      if (mag > maxOffset) {
-        const s = maxOffset / mag;
-        x *= s; y *= s;
-      }
+      if (mag > maxOffset) { const s = maxOffset / mag; x *= s; y *= s; }
       bubble.style.left = `calc(50% + ${x}px)`;
       bubble.style.top  = `calc(50% + ${y}px)`;
     }
 
     function onOrientation(e) {
-      // e.beta:   -180..180  (前後傾, 正值=向前低頭) 
-      // e.gamma:   -90.. 90  (左右傾, 正值=向右)
-      // e.alpha:    0..360   (相對參考方位; Safari 也可能提供 webkitCompassHeading)
-      if (typeof e.beta === "number")  state.beta  = e.beta;
-      if (typeof e.gamma === "number") state.gamma = e.gamma;
-
-      // 方位角（優先用 webkitCompassHeading；否則用 alpha 當近似）
+      if (typeof e.beta === "number")  state.betaRaw  = e.beta;
+      if (typeof e.gamma === "number") state.gammaRaw = e.gamma;
       let heading = null;
       if (typeof e.webkitCompassHeading === "number" && !isNaN(e.webkitCompassHeading)) {
-        heading = e.webkitCompassHeading; // 0 = 北
+        heading = e.webkitCompassHeading;
       } else if (typeof e.alpha === "number") {
-        // 注意：alpha 在不同裝置/座標可能非「真北」，僅作參考
-        heading = (360 - e.alpha); // 粗略轉成 0=北 的表徵
+        heading = (360 - e.alpha);
       }
       state.heading = (heading != null && isFinite(heading)) ? ((heading % 360) + 360) % 360 : null;
-
-      if (!rafId) rafId = requestAnimationFrame(() => {
-        rafId = null;
-        updateUI();
-      });
+      if (!rafId) rafId = requestAnimationFrame(() => { rafId = null; updateUI(); });
     }
 
     async function start() {
-      // iOS 13+ 需要使用者手勢觸發的授權
       const needPermission =
         typeof DeviceOrientationEvent !== "undefined" &&
         typeof DeviceOrientationEvent.requestPermission === "function";
-
       try {
         if (needPermission) {
           const res = await DeviceOrientationEvent.requestPermission();
           if (res !== "granted") {
-            alert("未授權感測器存取。請到「設定 > Safari > 隱私權與安全性 > 動作與方向取用」開啟，並重新載入。");
+            alert("未授權感測器存取，請到設定開啟「動作與方向取用」。");
             return;
           }
         }
         window.addEventListener("deviceorientation", onOrientation, { passive: true });
-
         $("btn").disabled = true;
         $("btn").textContent = "感測中…";
+        $("calBtn").disabled = false;
+        $("resetCal").disabled = false;
       } catch (err) {
         console.error(err);
-        alert("啟用感測器時發生錯誤：" + err);
+        alert("啟用感測器錯誤：" + err);
       }
     }
 
+    // ===== 校正流程 =====
+    function startCal() {
+      state.cal = { r1:null, r2:null, corr:null };
+      $("s1").textContent = "--"; $("s2").textContent = "--"; $("bCorr").textContent = "--";
+      $("sample1").disabled = false;
+      $("sample2").disabled = true;
+      $("applyCal").disabled = true;
+      $("calCard").style.display = "block";
+    }
+    function sample1() {
+      state.cal.r1 = state.betaRaw;
+      $("s1").textContent = fmt(state.cal.r1) + "°";
+      $("sample1").disabled = true;
+      $("sample2").disabled = false;
+    }
+    function sample2() {
+      state.cal.r2 = state.betaRaw;
+      $("s2").textContent = fmt(state.cal.r2) + "°";
+      state.cal.corr = (state.cal.r1 - state.cal.r2) / 2;
+      $("bCorr").textContent = fmt(state.cal.corr);
+      $("applyCal").disabled = false;
+    }
+    function applyCal() {
+      state.betaCorr = state.cal.corr ?? 0;
+      state.hasCorr = true;
+      $("calCard").style.display = "none";
+      updateUI();
+    }
+    function cancelCal() { $("calCard").style.display = "none"; }
+    function clearCal() {
+      state.betaCorr = 0; state.hasCorr = false;
+      updateUI();
+      alert("已清除校正。");
+    }
+
     $("btn").addEventListener("click", start, { passive: true });
+    $("calBtn").addEventListener("click", startCal, { passive: true });
+    $("resetCal").addEventListener("click", clearCal, { passive: true });
+    $("sample1").addEventListener("click", sample1, { passive: true });
+    $("sample2").addEventListener("click", sample2, { passive: true });
+    $("applyCal").addEventListener("click", applyCal, { passive: true });
+    $("cancelCal").addEventListener("click", cancelCal, { passive: true });
   </script>
 </body>
 </html>
