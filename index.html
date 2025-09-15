@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>iPhone 前傾角校正 Demo</title>
+  <title>iPhone水平儀歸零實習_教學用</title>
   <style>
     body { font-family: system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial;
            margin: 2rem; line-height: 1.6; }
@@ -27,24 +27,24 @@
   </style>
 </head>
 <body>
-  <h1>讀取 Apple 裝置的水平角度（含前傾角校正）</h1>
-  <p class="hint">請在 <b>HTTPS</b> 網站上開啟；首次需點按授權按鈕（iOS 規定）。</p>
+  <h1>讀取 Apple 裝置的水平角度（含前後傾角校正歸零）</h1>
+  <p class="hint">請在 <b>HTTPS</b> 網站上開啟；需點按授權按鈕（iOS）。</p>
 
   <div class="row">
     <button id="btn">請求感測權限並開始</button>
-    <button id="calBtn" disabled>前傾角校正</button>
-    <button id="resetCal" disabled>清除校正</button>
+    <button id="calBtn" disabled>前後傾角校正歸零</button>
+    <button id="resetCal" disabled>清除校正歸零</button>
   </div>
 
   <div id="calCard" class="card" style="display:none; margin-top:1rem;">
-    <strong>兩步驟前傾角校正</strong>
+    <strong>兩步驟前傾角校正歸零</strong>
     <ol>
       <li>位置 #1：放置手機，按 <button id="sample1">取樣 #1</button> → <span id="s1">--</span></li>
       <li>翻轉位置 #2：手機翻轉後，按 <button id="sample2" disabled>取樣 #2</button> → <span id="s2">--</span></li>
     </ol>
     <div>計算出的校正修正值 (r1 − r2)/2 = <span id="bCorr" class="big">--</span>°</div>
     <div class="row" style="margin-top:.5rem;">
-      <button id="applyCal" disabled>套用校正</button>
+      <button id="applyCal" disabled>套用校正歸零</button>
       <button id="cancelCal">取消</button>
     </div>
   </div>
@@ -146,7 +146,7 @@
       }
     }
 
-    // ===== 校正流程 =====
+    // ===== 校正歸零流程 =====
     function startCal() {
       state.cal = { r1:null, r2:null, corr:null };
       $("s1").textContent = "--"; $("s2").textContent = "--"; $("bCorr").textContent = "--";
@@ -178,7 +178,7 @@
     function clearCal() {
       state.betaCorr = 0; state.hasCorr = false;
       updateUI();
-      alert("已清除校正。");
+      alert("已清除校正歸零值。");
     }
 
     $("btn").addEventListener("click", start, { passive: true });
