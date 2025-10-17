@@ -42,7 +42,7 @@
       <li>位置 #1：放置手機，按 <button id="sample1">取樣 #1</button> → <span id="s1">--</span></li>
       <li>翻轉位置 #2：手機翻轉後，按 <button id="sample2" disabled>取樣 #2</button> → <span id="s2">--</span></li>
     </ol>
-    <div>計算出的校正修正值 (r1 − r2)/2 = <span id="bCorr" class="big">--</span>°</div>
+    <div>計算出的正確傾角 T = (A − B)/2 = <span id="bCorr" class="big">--</span>°</div>
     <div class="row" style="margin-top:.5rem;">
       <button id="applyCal" disabled>套用校正歸零</button>
       <button id="cancelCal">取消</button>
@@ -77,13 +77,20 @@
 
     let rafId = null;
     const state = {
-      betaRaw: 0, gammaRaw: 0, heading: null,
-      betaCorr: 0, hasCorr: false,
-      cal: { r1: null, r2: null, corr: null }
+      betaRaw: 0,
+      gammaRaw: 0,
+      heading: null,
+      correctedBeta: null, // 使用公式 T = (A - B)/2
+      cal: { r1: null, r2: null, T: null, E: null }
     };
 
-    function currentBeta() { return state.betaRaw - (state.hasCorr ? state.betaCorr : 0); }
-    function currentGamma(){ return state.gammaRaw; }
+    function currentBeta() {
+      return state.correctedBeta ?? state.betaRaw;
+    }
+
+    function currentGamma() {
+      return state.gammaRaw;
+    }
 
     function updateUI() {
       const beta = currentBeta();
@@ -91,7 +98,7 @@
 
       $("beta").textContent  = fmt(beta) + "°";
       $("gamma").textContent = fmt(gamma) + "°";
-      $("betaNote").textContent  = state.hasCorr ? "(已校正)" : "";
+      $("betaNote").textContent = state.correctedBeta != null ? "(已校正)" : "";
 
       const tilt = Math.hypot(beta, gamma);
       $("tilt").textContent = fmt(tilt) + "°";
@@ -113,6 +120,7 @@
     function onOrientation(e) {
       if (typeof e.beta === "number")  state.betaRaw  = e.beta;
       if (typeof e.gamma === "number") state.gammaRaw = e.gamma;
+
       let heading = null;
       if (typeof e.webkitCompassHeading === "number" && !isNaN(e.webkitCompassHeading)) {
         heading = e.webkitCompassHeading;
@@ -120,6 +128,7 @@
         heading = (360 - e.alpha);
       }
       state.heading = (heading != null && isFinite(heading)) ? ((heading % 360) + 360) % 360 : null;
+
       if (!rafId) rafId = requestAnimationFrame(() => { rafId = null; updateUI(); });
     }
 
@@ -146,37 +155,49 @@
       }
     }
 
-    // ===== 校正歸零流程 =====
+    // ===== 新版：根據公式 T = (A - B)/2 =====
     function startCal() {
-      state.cal = { r1:null, r2:null, corr:null };
+      state.cal = { r1: null, r2: null, T: null, E: null };
       $("s1").textContent = "--"; $("s2").textContent = "--"; $("bCorr").textContent = "--";
       $("sample1").disabled = false;
       $("sample2").disabled = true;
       $("applyCal").disabled = true;
       $("calCard").style.display = "block";
     }
+
     function sample1() {
       state.cal.r1 = state.betaRaw;
       $("s1").textContent = fmt(state.cal.r1) + "°";
       $("sample1").disabled = true;
       $("sample2").disabled = false;
     }
+
     function sample2() {
       state.cal.r2 = state.betaRaw;
       $("s2").textContent = fmt(state.cal.r2) + "°";
-      state.cal.corr = (state.cal.r1 - state.cal.r2) / 2;
-      $("bCorr").textContent = fmt(state.cal.corr);
+
+      // 計算正確傾角 T = (A - B) / 2
+      state.cal.T = (state.cal.r1 - state.cal.r2) / 2;
+
+      // 計算儀器誤差 E = (A + B) / 2（如需使用）
+      state.cal.E = (state.cal.r1 + state.cal.r2) / 2;
+
+      $("bCorr").textContent = fmt(state.cal.T);
       $("applyCal").disabled = false;
     }
+
     function applyCal() {
-      state.betaCorr = state.cal.corr ?? 0;
-      state.hasCorr = true;
+      state.correctedBeta = state.cal.T ?? 0;
       $("calCard").style.display = "none";
       updateUI();
     }
-    function cancelCal() { $("calCard").style.display = "none"; }
+
+    function cancelCal() {
+      $("calCard").style.display = "none";
+    }
+
     function clearCal() {
-      state.betaCorr = 0; state.hasCorr = false;
+      state.correctedBeta = null;
       updateUI();
       alert("已清除校正歸零值。");
     }
